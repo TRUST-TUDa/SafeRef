@@ -2,10 +2,7 @@
 parsing.py
 
 PDF -> structured citation records. Zero ML dependencies (just PyMuPDF +
-stdlib re) -- this is what the client library ships. Copied from
-SafeRef/core/components.py's parsing half (not imported from it -- this
-package is meant to be developed/deployed independently of the server side,
-see SafeRef/server/ for the matching counterpart).
+stdlib re).
 """
 
 import re
@@ -59,13 +56,8 @@ _NON_REFERENCE_PATTERNS = [
 ]
 
 _VENUE_AFTER_PUNCT = re.compile(
-    # `:?` covers citations where a colon-joined subtitle sits between the
-    # sentence-ending punctuation and the venue name (e.g. "...fail?: Advances
-    # in Neural Information Processing Systems" -- the colon used to block
-    # this match entirely, so the venue got kept as part of the title).
-    # Advances/Journal/Transactions/Communications are the same venue-keyword
-    # set _clean_title already trusts elsewhere in this file (line ~595);
-    # added here too so this earlier truncation pass catches the same cases.
+    # `:?` handles a colon-joined subtitle between the sentence-ending
+    # punctuation and the venue name, e.g. "...fail?: Advances in Neural..."
     r"[?!]:?\s+(?:International|Proceedings|Conference|Workshop|Symposium|Association|"
     r"The\s+\d{4}\s+Conference|Nations|Annual|IEEE|ACM|USENIX|AAAI|NeurIPS|ICML|ICLR|"
     r"CVPR|ICCV|ECCV|ACL|EMNLP|NAACL|Advances\s+in|Journal\s+of|Transactions\s+of|"
@@ -424,23 +416,14 @@ def _segment_references(ref_text, _debug=None):
             candidates.append(("ml_fullname", 0.8, refs))
 
     # ── Full-name flowing (no numbering, no blank lines between refs) ─────────
-    # Bibliography styles like plainnat/apalike (common in NeurIPS/ICLR/ICML
-    # camera-ready PDFs) print references back-to-back with no blank line and
-    # no "[N]" marker. A text extractor's line-wrap newlines land at a real
-    # reference boundary only by coincidence, so ml_fullname above (which
-    # requires a "\n" right at the boundary) can miss almost every boundary
-    # and merge a dozen references into one blob. This strategy instead finds
-    # boundaries from content alone: where a complete "Name, Name, ..., and
-    # Name." (or "..., et al.") author block ends and the next reference's
-    # title begins.
-    # A "full name" needs to tolerate more than plain "Firstname Lastname":
-    # lowercase surname particles ("van den Driessche", "de Oliveira Pinto"),
-    # a fused-apostrophe elided particle ("d'Autume"), and a bare one-letter
-    # first/middle name with no trailing period ("M Saiful Bari"). Any single
-    # unhandled name shape anywhere in a long author list breaks the match
-    # for the *whole* list (see BUG_REPORT_PARSING_FOR_ALESSANDRO.md), so
-    # this needs to cover the name shapes actually seen in these lists, not
-    # just the common case.
+    # For styles that print references back-to-back with no blank line and no
+    # "[N]" marker: finds boundaries from content alone -- where a complete
+    # "Name, Name, ..., and Name." (or "..., et al.") author block ends and
+    # the next reference's title begins. A "full name" here tolerates
+    # lowercase surname particles ("van den Driessche"), a fused-apostrophe
+    # particle ("d'Autume"), and a bare one-letter initial ("M Saiful Bari")
+    # -- one unhandled name shape anywhere in a long author list otherwise
+    # breaks the match for the whole list.
     _NAME_PARTICLE = (
         r"(?:van|von|de|del|della|di|da|al|el|la|le|ben|ibn|mac|mc|"
         r"dos|das|der|den|ter|du|af|ten|op|zum|zur)"
@@ -826,26 +809,17 @@ def _extract_title(ref_text):
     # Venue markers
     vps = [r"\.\s*[Ii]n:\s+(?:Proceedings|Workshop|Conference|Symposium|IFIP|IEEE|ACM)",
            r"\.\s*[Ii]n:\s+[A-Z]",
-           # Same "In: Venue" marker but comma-preceded instead of period-preceded
-           # (seen in Elsevier/engineering-journal numbered refs that mix journal
-           # and conference citations in the same list, no quotes around titles).
-           # Venue text sometimes leads with the year before the name itself,
-           # e.g. "in: 2008 Third International Conference...".
+           # comma-preceded "In: Venue", sometimes year-first e.g. "in: 2008 Third..."
            r",\s*[Ii]n:\s+(?:(?:19|20)\d{2}\s+)?[A-Z]",
            r"\.\s*[Ii]n\s+(?:Proceedings|Workshop|Conference|Symposium|AAAI|IEEE|ACM|USENIX)",
            r"\.\s*[Ii]n\s+[A-Z][a-z]+\s+(?:Conference|Workshop|Symposium)",
            r"\.\s*[Ii]n\s+(?:The\s+)?(?:\w+\s+)+(?:International\s+)?(?:Conference|Workshop|Symposium)",
            r"\.\s*(?:NeurIPS|ICML|ICLR|CVPR|ICCV|ECCV|AAAI|IJCAI|CoRR|JMLR),",
            r"\.\s*arXiv\s+preprint",
-           r",\s*arXiv\s+preprint",  # same comma-vs-period gap as the "in:" marker above
+           r",\s*arXiv\s+preprint",
            r"\.\s*[Ii]n\s+[A-Z]",
            r",\s*(?:19|20)\d{2}\.\s*(?:URL|$)", r",\s*(?:19|20)\d{2}\.\s*$",
-           # Elsevier/engineering-journal numbered style: "..., Journal Name N (n) (YYYY) pages"
-           # -- no quotes, no "In:", year sits in its own parens after volume/issue.
-           # Journal name may be an abbreviation with periods in it (e.g. "IEEE
-           # Softw.", "IEEE Commun. Surv. Tutor.", "Bull. Math. Biophys."), and
-           # the issue number in its own parens is optional (some venues cite
-           # as just "Vol (Year)" with no separate issue).
+           # Elsevier-style numbered ref: "..., Journal Name N (n) (YYYY) pages"
            r",\s*[A-Z][a-zA-Z.\s&]+\s+\d+\s*(?:\(\d+\)\s*)?\(\s*(?:19|20)\d{2}\s*\)"]
     for vp in vps:
         vm = re.search(vp, ref_text)
@@ -864,11 +838,7 @@ def _extract_title(ref_text):
             if _word_count(t) >= 3 and not re.match(r"^[A-Z][a-z]+,\s+[A-Z]\.", t):
                 return t, False
             break
-        # Initials-first author list not caught by either fallback above --
-        # e.g. "V.R. Palleti, S. Adepu, A. Mathur, Title text" (IEEE author
-        # order: initials then surname, comma-separated, no "and"). Strip a
-        # repeating "Initials Surname," run off the front of bv and take
-        # whatever's left as the title.
+        # Initials-first author list, e.g. "V.R. Palleti, S. Adepu, Title text"
         author_entry = r"[A-Z]\.(?:[A-Z]\.)*\s+[A-Z][a-zA-Z\-']+"
         am = re.match(rf"^(?:{author_entry}\s*,\s*)+", bv)
         if am:
@@ -945,18 +915,14 @@ def _extract_title(ref_text):
             t = re.sub(r"\.\s*$", "", aa[:te].strip())
             if _word_count(t) >= 3 and not _is_author_list(t): return t, False
 
-    # Org web-citation: "Org Name. Product/dataset name. https://...[, date][. Accessed ...]"
-    # -- no quotes, no venue in the usual sense, just an org, a name, and a URL.
+    # Org web-citation: "Org Name. Product/dataset name. https://..."
     owm = re.match(r"^([A-Z][a-zA-Z0-9\-\s]+)\.\s+([A-Z0-9][^.]*?)\.\s*https?://", ref_text)
     if owm:
         t = owm.group(2).strip()
         if _word_count(t) >= 1 and not _is_author_list(t):
             return t, False
 
-    # Full-name (not initials) author list ending in "... and Full Name. Title. Venue"
-    # -- e.g. "Nicolai Meinshausen and Peter Bühlmann. Stability selection. Journal..."
-    # or "A, B, and C Surname. Title. Venue" -- year doesn't sit right after the
-    # authors like the ACM/Springer patterns above expect, so those don't fire.
+    # Full-name author list, e.g. "Nicolai Meinshausen and Peter Bühlmann. Title. Venue"
     name_word = r"[A-Z][a-zA-ZÀ-ɏ\-']+"
     fnm = re.search(rf"\band\s+(?:{name_word}\s+){{1,3}}{name_word}\.\s+", ref_text)
     if fnm:
@@ -1031,7 +997,7 @@ def _has_extractable_content(ref):
 
 
 def _score_segmentation(refs, ref_text, specificity):
-    """Score a segmentation result in [0, 1]. Weights from Rust scoring.rs."""
+    """Score a segmentation result in [0, 1]."""
     if not refs:
         return 0.0
     total_len = sum(len(r) for r in refs)
@@ -1055,16 +1021,9 @@ def _score_segmentation(refs, ref_text, specificity):
 
 # ── Citation kind classifier ──────────────────────────────────────────────────
 # Distinguishes an academic paper from a web resource (blog post, product page,
-# news article, GitHub repo, dataset card, ...) cited alongside real papers in
-# the same reference list. Title word count alone can't tell these apart --
-# "Pytorch" (a real, correct one-word title) and "105124" (a garbled article-id
-# fragment) look identical by that measure. This instead looks at citation
-# *structure*: a URL plus the absence of normal paper markers (venue name with
-# volume/issue/year, "In:", "Proceedings", "Journal", an arXiv preprint marker,
-# a DOI, ...) is a reliable sign this isn't a paper. A DOI overrides the web
-# call even if a URL is present, since a DOI specifically signals formal
-# academic registration (a Springer book chapter or journal article with a
-# doi.org link is a paper, not a web resource, regardless of its venue shape).
+# GitHub repo, dataset card, ...) by structure: a URL plus the absence of
+# normal paper markers (venue, "In:", "Proceedings", arXiv marker, a DOI, ...)
+# means web-resource. A DOI always overrides, even with a URL present.
 
 _CITATION_URL_RE = re.compile(r"https?://|(?<!\w)www\.", re.IGNORECASE)
 _CITATION_DOI_RE = re.compile(r"doi\.org|\bdoi:\s*10\.", re.IGNORECASE)
@@ -1233,30 +1192,20 @@ class Parser:
         parsed_authors   : list of author name strings
         parsed_year      : publication year (int or None)
         parsed_venue     : venue/journal string (or None)
-        parsed_doi       : DOI string (or None) -- self-reported by the
-            citation text, not verified against any database here.
+        parsed_doi       : DOI string (or None), self-reported, not verified
         parsed_url       : URL built from arxiv_id (or None)
-        parsed_arxiv_id  : arXiv ID string (or None) -- also self-reported.
-        citation_kind    : "paper" (default) or "web-resource" -- a blog post,
-            product page, news article, GitHub repo, dataset card, etc. cited
-            alongside real papers. Detected structurally (URL present, no DOI,
-            no normal paper markers like a venue with volume/issue/year) --
-            see _classify_citation_kind. Not a quality signal: a "web-resource"
-            citation can have a perfectly good parsed_title, it's just never
-            going to be indexed in an academic title-match database -- the
-            client library skips sending these to the verification API.
+        parsed_arxiv_id  : arXiv ID string (or None), self-reported
+        citation_kind    : "paper" (default) or "web-resource" (blog post,
+            product page, GitHub repo, dataset card, ...) -- not a quality
+            signal, just never going to be in an academic title-match
+            database, so the client library skips sending these to the API.
         contexts         : list of {sentence, expanded_context} dicts
         source_pdf       : path of the input PDF
 
     Attributes:
-        segmentation_debug: dict describing how the reference section was
-            cut into individual citations -- {"strategy": which of
-            _segment_references' named strategies won (or None if no
-            candidate matched at all), "score": that strategy's
-            _score_segmentation() score, "candidates_tried": names of every
-            strategy that produced at least one candidate, "ref_text_len":
-            length of the located references section}. Diagnostic only --
-            not used by anything in the parse itself.
+        segmentation_debug: diagnostic dict describing how the reference
+            section was segmented -- {"strategy", "score",
+            "candidates_tried", "ref_text_len"}.
 
     Args:
         pdf_path: path to the PDF to parse

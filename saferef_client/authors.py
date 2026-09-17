@@ -1,16 +1,8 @@
 """
 authors.py
 
-Client-side author-list comparison -- used when the caller chooses not to
-send `authors` to the API at all (client.verify(..., send_authors=False)),
-to keep the request smaller/cheaper without losing author verification.
-The server already returns `db_authors` for every match regardless of
-whether authors were sent, so this just does the same comparison locally
-using citation data the library already has.
-
-Copy of server/matching.py's AuthorCheck normalization logic, kept in sync
-by hand -- SafeRef's convention for anything shared across library/ and
-server/ is a self-contained copy, not a cross-import.
+Client-side author-list comparison, used to compute author_status locally
+regardless of whether author names were sent to the API.
 """
 import re
 
@@ -20,11 +12,7 @@ _SURNAME_PREFIXES = {
 }
 _NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 _AUTHOR_SPLIT_RE = re.compile(r"\s*;\s*|\s*,\s*|\s+and\s+|\s*&\s*", re.IGNORECASE)
-# DBLP appends a bare numeric disambiguator as its own token when multiple
-# people share a name, e.g. "Francesco Santini 0001" -- a real citation
-# would never write an author name this way, so stripping it before
-# comparison is safe on both sides and fixes DBLP-merged records scoring
-# "partial" instead of "exact" purely because of this DBLP-only convention.
+# Strips DBLP's numeric disambiguator, e.g. "Francesco Santini 0001".
 _DBLP_DISAMBIGUATOR_RE = re.compile(r"\s+\d+$")
 
 
@@ -64,11 +52,7 @@ def _normalize_author(name: str) -> str:
 
 
 def compare_authors(parsed_authors: list[str], db_authors: list[str]) -> tuple[str, float]:
-    """Same decision logic as server/matching.py's AuthorCheck._evaluate():
-    returns (verdict, score) with verdict in "unknown"/"exact"/"partial"/"mismatch".
-    db_authors here is already a list of names (e.g. from an API result's
-    "db_authors" field) -- no splitting needed, unlike the server's version
-    which splits a raw db string."""
+    """Returns (verdict, score), verdict in "unknown"/"exact"/"partial"/"mismatch"."""
     parsed_normalized = {_normalize_author(a) for a in parsed_authors if _normalize_author(a)}
     db_normalized = {_normalize_author(a) for a in db_authors if _normalize_author(a)}
     if not parsed_normalized or not db_normalized:
