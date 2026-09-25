@@ -54,7 +54,7 @@ Non-academic web resources such as blog posts and product pages are identified s
 Clone the repository and install the library's dependencies:
 
 ```bash
-git clone https://github.com/<org>/SafeRef.git
+git clone https://github.com/TRUST-TUDa/SafeRef.git
 cd SafeRef/library
 
 pip install -r requirements.txt
@@ -67,8 +67,6 @@ SafeRef has deliberately minimal client-side dependencies. The library only need
 * HTTP communication with the SafeRef API
 
 **Title and author matching happens server-side.**
-
-> Replace `<org>` with the GitHub organization or username hosting your SafeRef repository.
 
 ---
 
