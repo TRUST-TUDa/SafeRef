@@ -189,10 +189,10 @@ results = verify_pdf(
 
 #### Seeing exactly what differs: `title_diff`
 
-`title_exact_match` and `title_similarity` can both miss the same real case: a citation title with one letter changed into a different, real-looking word (e.g. "Aurar" for the real "Auror") still scores a high similarity ratio, and a boolean exact-match tells you *that* it differs, not *how*. `title_diff` gives you the actual character-level diff so you can judge that for yourself:
+`title_exact_match` and `title_similarity` can both miss the same real case: a citation title with one letter changed into a different, real-looking word (e.g. "Aurar" for the real "Auror") still scores a high similarity ratio, and a boolean exact-match tells you *that* it differs, not *how*. `title_diff` gives you the actual character-level diff so you can judge that for yourself. It works on a result row from **either** `verify_pdf()` or `verify_titles()` — both return the same `parsed_title`/`matched_title` fields:
 
 ```python
-from saferef_client.titles import title_diff
+from saferef_client import title_diff
 
 diff = title_diff(result["parsed_title"], result["matched_title"])
 ```
