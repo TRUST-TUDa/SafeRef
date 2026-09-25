@@ -187,6 +187,33 @@ results = verify_pdf(
 
 `title_similarity` is offered as extra context for judgment calls in the middle ground between "clearly correct" and "clearly fabricated" — it is not itself a pass/fail threshold; no similarity cutoff was found to reliably beat plain exact-match on the accuracy/false-flag tradeoff.
 
+#### Seeing exactly what differs: `title_diff`
+
+`title_exact_match` and `title_similarity` can both miss the same real case: a citation title with one letter changed into a different, real-looking word (e.g. "Aurar" for the real "Auror") still scores a high similarity ratio, and a boolean exact-match tells you *that* it differs, not *how*. `title_diff` gives you the actual character-level diff so you can judge that for yourself:
+
+```python
+from saferef_client.titles import title_diff
+
+diff = title_diff(result["parsed_title"], result["matched_title"])
+```
+
+Call it when `title_exact_match` is `False` (it returns `None` if the titles already match, or if either is missing). It diffs the same normalized titles `title_exact_match` is based on, so punctuation/casing noise never shows up here. Each item is `{"tag", "parsed", "matched"}`, straight from `difflib.SequenceMatcher.get_opcodes()` — `"equal"`, `"replace"`, `"insert"` (present only in the matched title), or `"delete"` (present only in the parsed title):
+
+```python
+>>> title_diff(
+...     "Aurar: defending against poisoning attacks in collaborative deep learning systems",
+...     "Auror: defending against poisoning attacks in collaborative deep learning systems",
+... )
+[
+    {"tag": "equal",   "parsed": "aur", "matched": "aur"},
+    {"tag": "replace", "parsed": "a",   "matched": "o"},
+    {"tag": "equal",   "parsed": "r: defending against poisoning attacks in collaborative deep learning systems",
+                        "matched": "r: defending against poisoning attacks in collaborative deep learning systems"},
+]
+```
+
+A single `replace` op on one letter is easy to recognize as a real, substantive change; a title differing only by, say, a hyphen vs. an en-dash would show up as an equally small but obviously-cosmetic diff instead.
+
 ---
 
 ## Verification is not a verdict

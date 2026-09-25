@@ -46,3 +46,35 @@ def compare_titles(parsed_title: str | None, matched_title: str | None) -> tuple
     if not a or not b:
         return None, None
     return a == b, round(SequenceMatcher(None, a, b).ratio(), 4)
+
+
+def title_diff(parsed_title: str | None, matched_title: str | None) -> list[dict] | None:
+    """
+    Character-level diff between a citation's parsed title and the matched
+    record's title, for telling a trivial mismatch (punctuation, casing)
+    apart from a substantive one (a real changed word) at a glance --
+    something neither exact_match nor similarity alone can do well (a
+    one-character edit on a long title still scores a high similarity
+    ratio). Call this only when compare_titles() returned exact_match=False;
+    returns None otherwise (nothing to show), and also None if either title
+    is missing.
+
+    Diffs the same normalized titles compare_titles() bases exact_match on,
+    not the raw strings -- otherwise a pure-casing mismatch fragments into
+    one tiny op per differing letter, drowning out the real signal.
+
+    Each item is {"tag", "parsed", "matched"} from
+    difflib.SequenceMatcher.get_opcodes(): "equal", "replace", "insert"
+    (missing from parsed), or "delete" (missing from matched). Structured
+    rather than pre-rendered so callers can display it however fits.
+    """
+    if not parsed_title or not matched_title:
+        return None
+    a = normalize_title(parsed_title)
+    b = normalize_title(matched_title)
+    if not a or not b or a == b:
+        return None
+    return [
+        {"tag": tag, "parsed": a[i1:i2], "matched": b[j1:j2]}
+        for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b).get_opcodes()
+    ]
