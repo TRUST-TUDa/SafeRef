@@ -10,8 +10,8 @@ docstring for the full contract.
 """
 
 from .authors import compare_authors
-from .client import extract_citations, verify, verify_pdf
+from .client import extract_citations, verify, verify_pdf, verify_titles
 from .parsing import Parser
-from .titles import compare_titles
+from .titles import compare_titles, title_diff
 
-__all__ = ["extract_citations", "verify", "verify_pdf", "Parser", "compare_authors", "compare_titles"]
+__all__ = ["extract_citations", "verify", "verify_pdf", "verify_titles", "Parser", "compare_authors", "compare_titles", "title_diff"]

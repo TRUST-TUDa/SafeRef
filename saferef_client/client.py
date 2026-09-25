@@ -149,3 +149,62 @@ def verify_pdf(
         row.update(results_by_id.get(c["citation_id"], {}))
         merged.append(row)
     return merged
+
+
+def verify_titles(
+    titles: str | list[str],
+    api_url: str,
+    authors: list[str] | list[list[str]] | None = None,
+    api_key: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    send_authors: bool = True,
+    flag_on_title_mismatch: bool = False,
+) -> dict | list[dict]:
+    """
+    One-call convenience for verifying titles you already have -- from a
+    spreadsheet, a different parser, manual entry -- without needing a PDF.
+    Same underlying call as verify_pdf(), just skipping extract_citations().
+
+    titles: a single title, or a list of titles.
+    authors: optional, matching titles' shape:
+        - titles is a single str -> a flat list of author name strings.
+        - titles is a list -> a list of one author-list per title, same
+          length as titles. Use [] for a title with no known authors --
+          don't just shorten the list.
+        Omit entirely if you have no author info for any of them.
+
+    Returns a single merged result dict if titles was a single string,
+    otherwise a list of them in the same order as titles -- same row shape
+    as verify_pdf(): {citation_id, parsed_title, parsed_authors,
+    title_status, matched_source, match_score, matched_title,
+    author_status, db_authors, title_exact_match, title_similarity,
+    flagged, flag_reasons}.
+    """
+    single = isinstance(titles, str)
+    title_list = [titles] if single else list(titles)
+
+    if authors is None:
+        author_lists = [[] for _ in title_list]
+    elif single:
+        author_lists = [list(authors)]
+    else:
+        author_lists = [list(a) if a else [] for a in authors]
+        if len(author_lists) != len(title_list):
+            raise ValueError(f"authors has {len(author_lists)} entries, titles has {len(title_list)}")
+
+    citations = [
+        {"citation_id": i, "parsed_title": t, "parsed_authors": a}
+        for i, (t, a) in enumerate(zip(title_list, author_lists))
+    ]
+
+    results_by_id = {
+        r["citation_id"]: r
+        for r in verify(citations, api_url, api_key, timeout, send_authors, flag_on_title_mismatch)
+    }
+    merged = []
+    for c in citations:
+        row = dict(c)
+        row.update(results_by_id.get(c["citation_id"], {}))
+        merged.append(row)
+
+    return merged[0] if single else merged

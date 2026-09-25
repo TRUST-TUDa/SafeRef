@@ -275,11 +275,39 @@ This is useful when you want to:
 
 ---
 
-## Verify existing citations
+## Verify titles without a PDF
 
-You don't have to start with a PDF.
+You don't have to start with a PDF. If you already have a title (from a spreadsheet, a different parser, manual entry — anything), `verify_titles()` sends it straight to the SafeRef API without needing citation records:
 
-If you already have citation data from another source, use `verify()` to send those citations directly to the SafeRef API:
+```python
+from saferef_client import verify_titles
+
+# a single title, no author info
+result = verify_titles(
+    "Attention is all you need",
+    api_url="https://api.example.com",
+)
+
+# a single title, with authors
+result = verify_titles(
+    "Attention is all you need",
+    api_url="https://api.example.com",
+    authors=["Ashish Vaswani"],
+)
+
+# a list of titles -- authors, when given, is one list per title (use [] for none)
+results = verify_titles(
+    ["Attention is all you need", "A paper with no known authors"],
+    api_url="https://api.example.com",
+    authors=[["Ashish Vaswani"], []],
+)
+```
+
+Pass a single title and you get back a single result dict; pass a list and you get back a list, in the same order — same fields as `verify_pdf()`'s rows (`title_status`, `matched_source`, `matched_title`, `author_status`, `title_exact_match`, etc., see the [result fields table](#result-fields) above).
+
+### Lower-level: `verify()`
+
+If you already have full citation records — e.g. from `extract_citations()`, or your own extraction pipeline producing the same `{citation_id, parsed_title, parsed_authors}` shape — `verify()` sends those directly without `verify_titles()`'s title/author-list bookkeeping:
 
 ```python
 from saferef_client import verify
