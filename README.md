@@ -74,15 +74,14 @@ SafeRef has deliberately minimal client-side dependencies. The library only need
 
 ## Quick start
 
-Once you have a SafeRef API server running, verifying a PDF takes only a few lines:
+Verifying a PDF takes only a few lines. By default, requests go to the project's own public API instance — pass your own `api_url` if you're running a different server:
 
 ```python
 from saferef_client import verify_pdf
 
-results = verify_pdf(
-    "paper.pdf",
-    api_url="https://api.example.com",
-)
+results = verify_pdf("paper.pdf")
+# or, against your own server:
+# results = verify_pdf("paper.pdf", api_url="https://your-server.example.com")
 
 for result in results:
     print(
@@ -178,11 +177,7 @@ Because of that tradeoff, `title_exact_match`/`title_similarity` are always comp
 If you also want an exact-title mismatch to count as a flag reason, opt in explicitly:
 
 ```python
-results = verify_pdf(
-    "paper.pdf",
-    api_url="https://api.example.com",
-    flag_on_title_mismatch=True,
-)
+results = verify_pdf("paper.pdf", flag_on_title_mismatch=True)
 ```
 
 `title_similarity` is offered as extra context for judgment calls in the middle ground between "clearly correct" and "clearly fabricated" — it is not itself a pass/fail threshold; no similarity cutoff was found to reliably beat plain exact-match on the accuracy/false-flag tradeoff.
@@ -283,22 +278,14 @@ You don't have to start with a PDF. If you already have a title (from a spreadsh
 from saferef_client import verify_titles
 
 # a single title, no author info
-result = verify_titles(
-    "Attention is all you need",
-    api_url="https://api.example.com",
-)
+result = verify_titles("Attention is all you need")
 
 # a single title, with authors
-result = verify_titles(
-    "Attention is all you need",
-    api_url="https://api.example.com",
-    authors=["Ashish Vaswani"],
-)
+result = verify_titles("Attention is all you need", authors=["Ashish Vaswani"])
 
 # a list of titles -- authors, when given, is one list per title (use [] for none)
 results = verify_titles(
     ["Attention is all you need", "A paper with no known authors"],
-    api_url="https://api.example.com",
     authors=[["Ashish Vaswani"], []],
 )
 ```
@@ -312,10 +299,7 @@ If you already have full citation records — e.g. from `extract_citations()`, o
 ```python
 from saferef_client import verify
 
-results = verify(
-    citations,
-    api_url="https://api.example.com",
-)
+results = verify(citations)
 ```
 
 This lets you use SafeRef as a verification layer independently of its PDF extraction functionality.
@@ -329,21 +313,13 @@ This lets you use SafeRef as a verification layer independently of its PDF extra
 By default, SafeRef sends the parsed author names together with each citation title:
 
 ```python
-results = verify_pdf(
-    "paper.pdf",
-    api_url="https://api.example.com",
-    send_authors=True,
-)
+results = verify_pdf("paper.pdf", send_authors=True)
 ```
 
 If you do not want parsed author names to leave your machine at all, disable this:
 
 ```python
-results = verify_pdf(
-    "paper.pdf",
-    api_url="https://api.example.com",
-    send_authors=False,
-)
+results = verify_pdf("paper.pdf", send_authors=False)
 ```
 
 Either way, the resulting `author_status` is identical — `send_authors` is purely a privacy knob, not an accuracy one.

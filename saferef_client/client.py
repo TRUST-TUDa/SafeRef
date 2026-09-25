@@ -20,6 +20,10 @@ from .titles import compare_titles
 
 DEFAULT_TIMEOUT = 120
 
+# The project's own public instance -- override with your own api_url if you're
+# running a different server.
+DEFAULT_API_URL = "https://saferef.trust.informatik.tu-darmstadt.de:60301"
+
 # Requests larger than this are chunked into sequential sub-requests.
 MAX_BATCH_SIZE = 100
 
@@ -31,7 +35,7 @@ def extract_citations(pdf_path: str) -> list[dict]:
 
 def verify(
     citations: list[dict],
-    api_url: str,
+    api_url: str = DEFAULT_API_URL,
     api_key: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     send_authors: bool = True,
@@ -43,7 +47,8 @@ def verify(
 
     Args:
         citations: records as returned by extract_citations() / Parser.
-        api_url:   base URL of the SafeRef API, e.g. "https://api.example.com"
+        api_url:   base URL of the SafeRef API. Defaults to the project's own
+            public instance; pass your own if you're running a different server.
         api_key:   sent as "Authorization: Bearer <api_key>" if given.
         timeout:   per-request timeout in seconds, applied to each chunk.
         send_authors: if False, author names aren't sent to the server;
@@ -129,7 +134,7 @@ def verify(
 
 def verify_pdf(
     pdf_path: str,
-    api_url: str,
+    api_url: str = DEFAULT_API_URL,
     api_key: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     send_authors: bool = True,
@@ -153,7 +158,7 @@ def verify_pdf(
 
 def verify_titles(
     titles: str | list[str],
-    api_url: str,
+    api_url: str = DEFAULT_API_URL,
     authors: list[str] | list[list[str]] | None = None,
     api_key: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
