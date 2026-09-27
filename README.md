@@ -1,51 +1,14 @@
 # SafeRef
 
-**Extract academic citations from PDFs and verify them against trusted scholarly indexes.**
+**Extract academic citations from PDFs and verify them against scholarly indexes.**
 
-SafeRef is a lightweight Python client for extracting references from academic PDFs and checking whether those references can be matched to records in **arXiv** and **Crossref** through the SafeRef API.
+SafeRef is a lightweight Python client that extracts references from academic PDFs and checks them against scholarly records through the SafeRef API.
 
-The library handles the local work, PDF parsing, citation extraction, and result formatting. 
-While the SafeRef API performs the title and author matching.
+PDF parsing, citation extraction, and author comparison are performed locally. The SafeRef API matches citation titles and authors against indexed records.
 
 > **SafeRef is a verification aid, not a truth detector.**
 >
-> A citation reported as `not-verified` is **not proof that the paper is fake or nonexistent**. The citation may have been parsed incorrectly, the title may differ substantially from the indexed version, or the work may simply not be present in arXiv or Crossref. Treat SafeRef results as signals for further investigation, not definitive judgments.
-
-------
-
-## How it works
-
-SafeRef follows a simple pipeline:
-
-```text
-      Academic PDF
-           │
-           ▼
-┌─────────────────────┐
-│ Citation extraction │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ SafeRef API         │
-│                     │
-│ • title matching    │
-│ • author matching   │
-│ • source detection  │
-└──────────┬──────────┘
-           │
-           ▼
-   Verification results
-```
-
-The Python library **does not contain an ML model or academic database**. It extracts citations locally and sends the relevant information to a running SafeRef API server.
-
-The API compares citations against supported scholarly sources, currently:
-
-* **arXiv**
-* **Crossref**
-
-Non-academic web resources such as blog posts and product pages are identified separately and are not sent to the academic verification API.
+> A `not-verified` result does **not** mean a paper is hallucinated or nonexistent. The citation may have been parsed incorrectly, differ from the indexed version, or simply not be present in the available scholarly indexes. Use SafeRef results as signals for further investigation, not definitive judgments.
 
 ---
 
@@ -55,7 +18,7 @@ Clone the repository and install the library's dependencies:
 
 ```bash
 git clone https://github.com/TRUST-TUDa/SafeRef.git
-cd SafeRef/library
+cd SafeRef
 
 pip install -r requirements.txt
 ```
@@ -66,20 +29,19 @@ SafeRef has deliberately minimal client-side dependencies. The library only need
 * citation extraction
 * HTTP communication with the SafeRef API
 
-**Title and author matching happens server-side.**
-
 ---
 
 ## Quick start
 
-Verifying a PDF takes only a few lines. By default, requests go to the project's own public API instance — pass your own `api_url` if you're running a different server:
+Verifying a PDF takes only a few lines. By default, requests go to the project's own public API instance.
+Pass your own `api_url` if you're running a different server:
 
 ```python
 from saferef_client import verify_pdf
 
-results = verify_pdf("paper.pdf")
+results = verify_pdf("path/to/document.pdf")
 # or, against your own server:
-# results = verify_pdf("paper.pdf", api_url="https://your-server.example.com")
+# results = verify_pdf("path/to/document.pdf", api_url="https://your-server.example.com")
 
 for result in results:
     print(
@@ -89,10 +51,6 @@ for result in results:
         result["parsed_title"],
     )
 ```
-
-`api_url` must point to a running SafeRef API deployment.
-
-A public SafeRef API instance can be documented here once one is available. Until then, use your own deployment.
 
 ---
 
@@ -123,7 +81,6 @@ Each result combines:
 | `flagged`           | `True` if any concern was raised about this citation                      |
 | `flag_reasons`      | List of short strings explaining why `flagged` is `True` (empty otherwise) |
 
-`author_status`, `title_exact_match`, `title_similarity`, `flagged`, and `flag_reasons` are all computed **locally by the library**, not by the server — the server only performs the FAISS search and returns raw data (`matched_title`, `db_authors`, scores). This means the comparison/flagging policy lives in the library, where a caller can inspect or override it, rather than being one fixed decision baked into the API for every user.
 
 ### `title_status`
 
@@ -135,77 +92,71 @@ The title status can be:
 | `not-verified` | No suitable academic record was found                                                                |
 | `web-resource` | The citation appears to refer to a non-academic web resource and is not sent to the verification API |
 
-For example, a blog post, product page, or other general web resource may be classified as `web-resource`. Such references are intentionally excluded from academic-index verification because they are not expected to appear in arXiv or Crossref.
+For example, a blog post, product page, or other general web resource may be classified as `web-resource`. Such references are intentionally excluded from academic-index verification because they are not expected to appear in our academic dataset.
 
-### `matched_source`
+---
 
-When a citation is successfully matched, this indicates where the record was found:
+## Verify titles without a PDF
 
-```text
-arxiv
-crossref
-none
-```
-
-`none` means that no supported source produced a usable match.
-
-### `author_status`
-
-When a title match exists, SafeRef can also compare the citation's authors with the authors associated with the matched record:
-
-```text
-exact
-partial
-mismatch
-unknown
-N/A
-```
-
-These values should be interpreted together with the title result rather than as independent proof of authenticity.
-
-### Title-match flagging
-
-Pure title-embedding similarity is a weak fake-title detector on its own — in testing, most fabricated titles still scored above the verification threshold on similarity alone. Requiring the matched title to be an **exact** match (after normalizing whitespace/punctuation/case) is a much stronger signal, but it also incorrectly flags a real minority of genuinely correct citations whose parsed title has minor OCR/formatting noise.
-
-Because of that tradeoff, `title_exact_match`/`title_similarity` are always computed and returned, but do **not** contribute to `flagged` by default. `flagged`/`flag_reasons` are `True`/non-empty when:
-
-* `title_status` is not `verified` (and not `web-resource`), or
-* `author_status` is `mismatch`.
-
-If you also want an exact-title mismatch to count as a flag reason, opt in explicitly:
+Use `verify_titles()` to verify titles directly, without extracting them from a PDF.
 
 ```python
-results = verify_pdf("paper.pdf", flag_on_title_mismatch=True)
+from saferef_client import verify_titles
+
+# Single title
+result = verify_titles("Attention is all you need")
+
+# Title with authors
+result = verify_titles(
+    "Attention is all you need",
+    authors=["Ashish Vaswani"],
+)
+
+# Multiple titles
+results = verify_titles(
+    ["Attention is all you need", "Deep Residual Learning for Image Recognition"],
+    authors=[["Ashish Vaswani"], []],
+)
 ```
 
-`title_similarity` is offered as extra context for judgment calls in the middle ground between "clearly correct" and "clearly fabricated" — it is not itself a pass/fail threshold; no similarity cutoff was found to reliably beat plain exact-match on the accuracy/false-flag tradeoff.
+Pass a single title and you get back a single result dict; pass a list and you get back a list, in the same order with same fields as `verify_pdf()`'s rows (`title_status`, `matched_source`, `matched_title`, `author_status`, `title_exact_match`, etc., see the [result fields table](#result-fields) above).
 
-#### Seeing exactly what differs: `title_diff`
+---
 
-`title_exact_match` and `title_similarity` can both miss the same real case: a citation title with one letter changed into a different, real-looking word (e.g. "Aurar" for the real "Auror") still scores a high similarity ratio, and a boolean exact-match tells you *that* it differs, not *how*. `title_diff` gives you the actual character-level diff so you can judge that for yourself. It works on a result row from **either** `verify_pdf()` or `verify_titles()` — both return the same `parsed_title`/`matched_title` fields:
+## Parse citations without verification
+
+If you only want to inspect the references extracted from a PDF, you can use `extract_citations()` directly:
 
 ```python
-from saferef_client import title_diff
+from saferef_client import extract_citations
 
-diff = title_diff(result["parsed_title"], result["matched_title"])
+citations = extract_citations("path/to/document.pdf")
+
+for citation in citations:
+    print(citation)
 ```
 
-Call it when `title_exact_match` is `False` (it returns `None` if the titles already match, or if either is missing). It diffs the same normalized titles `title_exact_match` is based on, so punctuation/casing noise never shows up here. Each item is `{"tag", "parsed", "matched"}`, straight from `difflib.SequenceMatcher.get_opcodes()` — `"equal"`, `"replace"`, `"insert"` (present only in the matched title), or `"delete"` (present only in the parsed title):
+This performs the extraction step without sending the citations to a SafeRef API server.
+
+This is useful when you want to:
+
+* inspect parsing quality;
+* filter citations locally;
+* debug extraction;
+* build your own verification workflow;
+* review what information would be sent to the API.
+
+### Lower-level: `verify()`
+
+If you already have full citation records, e.g. from `extract_citations()`, or your own extraction pipeline, using the same `{citation_id, parsed_title, parsed_authors}` format, use `verify()` to analyze those directly without `verify_titles()`'s title/author-list bookkeeping:
 
 ```python
->>> title_diff(
-...     "Aurar: defending against poisoning attacks in collaborative deep learning systems",
-...     "Auror: defending against poisoning attacks in collaborative deep learning systems",
-... )
-[
-    {"tag": "equal",   "parsed": "aur", "matched": "aur"},
-    {"tag": "replace", "parsed": "a",   "matched": "o"},
-    {"tag": "equal",   "parsed": "r: defending against poisoning attacks in collaborative deep learning systems",
-                        "matched": "r: defending against poisoning attacks in collaborative deep learning systems"},
-]
+from saferef_client import verify
+
+results = verify(citations)
 ```
 
-A single `replace` op on one letter is easy to recognize as a real, substantive change; a title differing only by, say, a hyphen vs. an en-dash would show up as an equally small but obviously-cosmetic diff instead.
+This lets you use SafeRef as a verification layer independently of its PDF extraction functionality.
 
 ---
 
@@ -241,83 +192,9 @@ Likewise, a successful match should be treated as evidence of a corresponding in
 
 **Use SafeRef to identify citations worth checking, not to make unsupported claims about whether a paper is genuine.**
 
----
+The API compares citations against supported scholarly sources, currently:
 
-## Parse citations without verification
+* **arXiv**
+* **Crossref**
 
-If you only want to inspect the references extracted from a PDF, you can use `extract_citations()` directly:
-
-```python
-from saferef_client import extract_citations
-
-citations = extract_citations("paper.pdf")
-
-for citation in citations:
-    print(citation)
-```
-
-This performs the extraction step without sending the citations to a SafeRef API server.
-
-This is useful when you want to:
-
-* inspect parsing quality;
-* filter citations locally;
-* debug extraction;
-* build your own verification workflow;
-* review what information would be sent to the API.
-
----
-
-## Verify titles without a PDF
-
-You don't have to start with a PDF. If you already have a title (from a spreadsheet, a different parser, manual entry — anything), `verify_titles()` sends it straight to the SafeRef API without needing citation records:
-
-```python
-from saferef_client import verify_titles
-
-# a single title, no author info
-result = verify_titles("Attention is all you need")
-
-# a single title, with authors
-result = verify_titles("Attention is all you need", authors=["Ashish Vaswani"])
-
-# a list of titles -- authors, when given, is one list per title (use [] for none)
-results = verify_titles(
-    ["Attention is all you need", "A paper with no known authors"],
-    authors=[["Ashish Vaswani"], []],
-)
-```
-
-Pass a single title and you get back a single result dict; pass a list and you get back a list, in the same order — same fields as `verify_pdf()`'s rows (`title_status`, `matched_source`, `matched_title`, `author_status`, `title_exact_match`, etc., see the [result fields table](#result-fields) above).
-
-### Lower-level: `verify()`
-
-If you already have full citation records — e.g. from `extract_citations()`, or your own extraction pipeline producing the same `{citation_id, parsed_title, parsed_authors}` shape — `verify()` sends those directly without `verify_titles()`'s title/author-list bookkeeping:
-
-```python
-from saferef_client import verify
-
-results = verify(citations)
-```
-
-This lets you use SafeRef as a verification layer independently of its PDF extraction functionality.
-
----
-
-## Author privacy
-
-`author_status` is always computed **locally by the library**, regardless of `send_authors` — the server returns `db_authors` for every title match either way, and the same comparison logic runs on the caller's own machine either way. `send_authors` only controls whether the parsed author names are also sent to the server in the request body; it does not change any result.
-
-By default, SafeRef sends the parsed author names together with each citation title:
-
-```python
-results = verify_pdf("paper.pdf", send_authors=True)
-```
-
-If you do not want parsed author names to leave your machine at all, disable this:
-
-```python
-results = verify_pdf("paper.pdf", send_authors=False)
-```
-
-Either way, the resulting `author_status` is identical — `send_authors` is purely a privacy knob, not an accuracy one.
+Non-academic web resources such as blog posts and product pages are identified separately and are not sent to the academic verification API.
