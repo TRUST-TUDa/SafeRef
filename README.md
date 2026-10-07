@@ -196,5 +196,6 @@ The API compares citations against supported scholarly sources, currently:
 
 * **arXiv**
 * **Crossref**
+* **DBLP**
 
 Non-academic web resources such as blog posts and product pages are identified separately and are not sent to the academic verification API.
