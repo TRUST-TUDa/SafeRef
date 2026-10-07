@@ -121,9 +121,17 @@ def verify(
 
         reasons = []
         if r.get("title_status") not in ("verified", "web-resource"):
-            reasons.append("title not verified")
+            reasons.append("no confident title match found in our corpus")
         if r["author_status"] == "mismatch":
-            reasons.append("author mismatch")
+            if similarity is not None and similarity < 0.85:
+                reasons.append(
+                    "authors don't match the nearest title candidate, and that candidate's "
+                    "title itself looks substantially different, this usually means the "
+                    "cited paper isn't in our corpus (e.g. an unindexed workshop paper), not "
+                    "that its authors were fabricated"
+                )
+            else:
+                reasons.append("authors don't match the matched paper's actual author list")
         if flag_on_title_mismatch and exact_match is False:
             reasons.append("title text does not exactly match matched record")
         r["flag_reasons"] = reasons
