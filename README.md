@@ -37,7 +37,7 @@ Verifying a PDF takes only a few lines. By default, requests go to the project's
 Pass your own `api_url` if you're running a different server:
 
 ```python
-from saferef_client import verify_pdf
+from saferef_client import verify_pdf, title_diff
 
 results = verify_pdf("path/to/document.pdf")
 # or, against your own server:
@@ -48,8 +48,10 @@ for result in results:
         result["citation_id"],
         result["title_status"],
         result["author_status"],
-        result["parsed_title"],
+        result["raw_citation"],
     )
+    if result["title_exact_match"] is False:
+        print("title diff:", title_diff(result["parsed_title"], result["matched_title"]))
 ```
 
 ---
@@ -68,6 +70,7 @@ Each result combines:
 | Field               | Description                                                              |
 | ------------------- | ------------------------------------------------------------------------- |
 | `citation_id`       | Identifier assigned to the extracted citation                             |
+| `raw_citation`      | The citation text exactly as it appeared in the PDF, before parsing       |
 | `parsed_title`      | Title extracted from the PDF                                              |
 | `parsed_authors`    | Authors extracted from the PDF                                            |
 | `title_status`      | Result of title verification                                              |
