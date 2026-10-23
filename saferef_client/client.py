@@ -6,11 +6,18 @@ the SafeRef API whether each one verifies:
 verify_pdf(pdf_path, api_url) -> a list of per-citation verdicts.
 
 "web-resource" citations (blog posts, product pages, dataset cards, ...)
-are never sent to the API -- they get their own title_status locally
-instead of costing a network round trip.
+are never sent to the API -- they get their own title_status locally.
+They still get a real, independent check by default though: a cheap
+HEAD/GET request straight to the cited URL confirms it still exists,
+since "not sent to the API" previously meant no check of any kind,
+leaving a fabricated or dead web-resource citation indistinguishable
+from a legitimate one (see check_web_resource_urls on verify()/verify_pdf()).
 """
 
 from __future__ import annotations
+
+import concurrent.futures
+import re
 
 import requests
 
@@ -27,6 +34,92 @@ DEFAULT_API_URL = "https://saferef.trust.informatik.tu-darmstadt.de:60301"
 # Requests larger than this are chunked into sequential sub-requests.
 MAX_BATCH_SIZE = 100
 
+# How many web-resource URLs to check concurrently -- these are independent,
+# I/O-bound network calls, so a small thread pool keeps the check fast even
+# when a paper cites several code/dataset repos, without hammering too many
+# different external hosts at once.
+_URL_CHECK_WORKERS = 8
+_URL_CHECK_TIMEOUT = 5.0
+
+# Finds where a fetchable URL STARTS inside a raw citation string -- separate
+# from parsing.py's classification regexes (which only need to detect THAT a
+# URL/host is present, not extract the full string to request it). A PDF
+# line-wrap can insert a stray space ANYWHERE in a URL, not just right after
+# the protocol (confirmed on a real citation: "https://github.com/
+# facebookresearch/xformers") -- so unlike a normal "stop at whitespace" URL
+# regex, extraction below spans to a citation-ending marker instead and
+# strips whitespace from within that span, rather than stopping at the
+# first stray space and silently truncating the path.
+_URL_START_RE = re.compile(r"https?\s*:\s*//\s*|www\.", re.IGNORECASE)
+_BARE_CODE_HOST_START_RE = re.compile(
+    r"\b(?:github\.com|gitlab\.com|bitbucket\.org|sourceforge\.net|codeberg\.org|"
+    r"gitee\.com|huggingface\.co|[A-Za-z0-9-]+\.github\.io)/",
+    re.IGNORECASE,
+)
+# The overwhelmingly common way a URL ends in a reference list: ", <year>".
+# Used as the span's end marker when present, since a bare whitespace-based
+# cutoff can't be used (see above) -- falls back to the end of the string.
+_CITATION_URL_END_RE = re.compile(r",\s*(?:19|20)\d{2}\b")
+
+
+def _extract_citation_url(raw_citation: str | None) -> str | None:
+    """Best-effort extraction of a fetchable URL from a raw citation string,
+    for the reachability check below. Returns None (skip the check) rather
+    than guess if nothing confidently URL-shaped is found."""
+    if not raw_citation:
+        return None
+    m = _URL_START_RE.search(raw_citation) or _BARE_CODE_HOST_START_RE.search(raw_citation)
+    if not m:
+        return None
+    rest = raw_citation[m.start():]
+    end = _CITATION_URL_END_RE.search(rest)
+    url_span = rest[:end.start()] if end else rest
+    url = re.sub(r"\s+", "", url_span)  # collapse PDF-mangled internal spaces (can occur anywhere, not just after the protocol)
+    url = url.rstrip(".,;:)]")  # trailing sentence punctuation, not part of the URL
+    if not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
+
+
+def _check_url_reachable(url: str | None) -> bool | None:
+    """Cheap existence check -- HEAD request, falling back to GET only if the
+    server actively rejects HEAD (405/501: it's there, it just doesn't like
+    that method -- a connection-level failure means GET would fail the same
+    way, so no fallback attempt in that case). Never downloads the response
+    body either way -- this confirms the resource exists, it doesn't inspect
+    its content.
+
+    Deliberately conservative about what counts as "unreachable" (False),
+    since a caller may act on this (e.g. flagging the citation) and a false
+    positive on a real, legitimate resource is worse than missing a genuine
+    fabrication: only a clear 404/410 (the server positively says this
+    specific resource is gone) or a DNS/connection failure (the host itself
+    doesn't resolve or respond) count. A 403/429/5xx or a timeout is about
+    access or server health, not evidence the resource doesn't exist, so
+    those return None (inconclusive) rather than False.
+    """
+    if not url:
+        return None
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; SafeRefCitationCheck/1.0; "
+                              "+https://github.com/TRUST-TUDa/SafeRef)"}
+    try:
+        resp = requests.head(url, timeout=_URL_CHECK_TIMEOUT, allow_redirects=True, headers=headers)
+        if resp.status_code in (405, 501):
+            resp = requests.get(url, timeout=_URL_CHECK_TIMEOUT, allow_redirects=True,
+                                 headers=headers, stream=True)
+            resp.close()
+        if resp.status_code in (404, 410):
+            return False
+        if resp.status_code < 400:
+            return True
+        return None
+    except requests.exceptions.Timeout:
+        return None
+    except requests.exceptions.ConnectionError:
+        return False
+    except requests.exceptions.RequestException:
+        return None
+
 
 def extract_citations(pdf_path: str) -> list[dict]:
     """Parse a PDF into citation records. No network calls."""
@@ -40,6 +133,7 @@ def verify(
     timeout: float = DEFAULT_TIMEOUT,
     send_authors: bool = True,
     flag_on_title_mismatch: bool = False,
+    check_web_resource_urls: bool = True,
 ) -> list[dict]:
     """
     Send parsed citations to the SafeRef API for title verification, then
@@ -60,13 +154,31 @@ def verify(
             also flags ~7% of real citations (parsing/OCR noise); off by
             default so callers can apply their own threshold instead via
             title_exact_match/title_similarity.
+        check_web_resource_urls: a "web-resource" citation (a code repo,
+            dataset card, blog post, ...) is never sent to the API, so
+            without this it gets no check of any kind -- flagged=False
+            either way, which could read as "checked and fine" when really
+            nothing was checked at all. Default True: does a cheap HEAD
+            request (GET fallback, no body downloaded) against the cited
+            URL and flags it if the URL is clearly gone (404/410) or the
+            host doesn't resolve/respond. Not sending citation titles to a
+            second party, unlike send_authors -- this only contacts the URL
+            the citation itself already points to, and verify_pdf() already
+            requires network access to reach the SafeRef API, so this adds
+            no new category of network exposure, just more of it. Set False
+            to skip it (e.g. fully offline use, or if the extra requests
+            aren't wanted).
 
     Returns:
         One result dict per citation sent:
         {citation_id, title_status, matched_source, match_score,
          matched_title, author_status, db_authors, title_exact_match,
-         title_similarity, flagged, flag_reasons}.
+         title_similarity, url_reachable, flagged, flag_reasons}.
+        url_reachable is True/False/None for a web-resource citation (None
+        if checking was skipped or inconclusive), always None for a paper
+        citation (not applicable).
     """
+    web_resource_citations = [c for c in citations if c.get("citation_kind") == "web-resource"]
     web_resource_results = [
         {
             "citation_id":       c["citation_id"],
@@ -78,12 +190,26 @@ def verify(
             "db_authors":        [],
             "title_exact_match": None,
             "title_similarity":  None,
+            "url_reachable":     None,
             "flagged":           False,
             "flag_reasons":      [],
         }
-        for c in citations
-        if c.get("citation_kind") == "web-resource"
+        for c in web_resource_citations
     ]
+
+    if check_web_resource_urls and web_resource_citations:
+        urls = [_extract_citation_url(c.get("raw_citation")) for c in web_resource_citations]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(_URL_CHECK_WORKERS, len(urls))) as pool:
+            reachable_flags = list(pool.map(_check_url_reachable, urls))
+        for result, reachable in zip(web_resource_results, reachable_flags):
+            result["url_reachable"] = reachable
+            if reachable is False:
+                result["flagged"] = True
+                result["flag_reasons"] = [
+                    "cited URL appears unreachable (page not found or host does not respond) -- "
+                    "the resource may have been removed, moved, or never existed"
+                ]
+
     paper_citations = [c for c in citations if c.get("citation_kind") != "web-resource"]
     payload_citations = [
         {
@@ -136,6 +262,7 @@ def verify(
             reasons.append("title text does not exactly match matched record")
         r["flag_reasons"] = reasons
         r["flagged"] = bool(reasons)
+        r["url_reachable"] = None  # not applicable to a paper citation -- see web-resource results above
 
     return sorted(api_results + web_resource_results, key=lambda r: r["citation_id"])
 
@@ -147,13 +274,16 @@ def verify_pdf(
     timeout: float = DEFAULT_TIMEOUT,
     send_authors: bool = True,
     flag_on_title_mismatch: bool = False,
+    check_web_resource_urls: bool = True,
 ) -> list[dict]:
     """One-call convenience: extract + verify, merged into one row per
-    citation (parsed fields + verdict fields)."""
+    citation (parsed fields + verdict fields). See verify()'s docstring for
+    check_web_resource_urls."""
     citations = extract_citations(pdf_path)
     results_by_id = {
         r["citation_id"]: r
-        for r in verify(citations, api_url, api_key, timeout, send_authors, flag_on_title_mismatch)
+        for r in verify(citations, api_url, api_key, timeout, send_authors, flag_on_title_mismatch,
+                         check_web_resource_urls)
     }
 
     merged = []
