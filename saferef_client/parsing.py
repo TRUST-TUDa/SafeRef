@@ -1027,6 +1027,22 @@ def _score_segmentation(refs, ref_text, specificity):
 
 _CITATION_URL_RE = re.compile(r"https?://|(?<!\w)www\.", re.IGNORECASE)
 _CITATION_DOI_RE = re.compile(r"doi\.org|\bdoi:\s*10\.", re.IGNORECASE)
+_CITATION_ARXIV_RE = re.compile(r"\barxiv\b|arxiv\.org", re.IGNORECASE)
+
+# Code / software / dataset hosting that academic indexes never contain. A
+# citation to one of these is a software/dataset reference, not a paper, even
+# when it reads like one -- the classic case is "Authors. <Software name>.
+# https://github.com/org/repo." Host matched with the protocol OPTIONAL (bare
+# "github.com/org/repo", or a PDF-extraction artifact like "https :// github..."
+# where the protocol got split off, both still match) and a trailing "/" so a
+# real repo path is present and a stray "github" in prose won't trip it.
+_CITATION_CODE_REPO_RE = re.compile(
+    r"(?:https?://|www\.)?"
+    r"(?:github\.com|gitlab\.com|bitbucket\.org|sourceforge\.net|codeberg\.org|"
+    r"gitee\.com|huggingface\.co|[A-Za-z0-9-]+\.github\.io)/",
+    re.IGNORECASE,
+)
+
 _CITATION_PAPER_MARKER_RE = re.compile(
     r"\b(?:in:|proceedings|conference|workshop|symposium|journal|transactions|"
     r"arxiv|advances\s+in|tech\.?\s*rep|rfc\s*\d)"
@@ -1042,8 +1058,21 @@ def _classify_citation_kind(raw_citation: str) -> str:
     """'paper' (default) or 'web-resource'."""
     if not raw_citation:
         return "paper"
+    # Formal academic registration wins first: a DOI or arXiv reference is a
+    # paper (a Springer chapter or a preprint that also links code), so it
+    # stays verifiable even with a repo URL present.
     if _CITATION_DOI_RE.search(raw_citation):
         return "paper"
+    if _CITATION_ARXIV_RE.search(raw_citation):
+        return "paper"
+    # A cited code/software/dataset repo is decisive and overrides the generic
+    # paper-marker check below -- otherwise a repo citation sitting next to (or,
+    # after a segmentation merge, concatenated with) a normal paper citation
+    # picks up its "Proceedings"/"vol."/year markers and is wrongly sent to
+    # title-matching, where a short generic software name draws a plausible but
+    # wrong match and a spurious author-mismatch flag.
+    if _CITATION_CODE_REPO_RE.search(raw_citation):
+        return "web-resource"
     if _CITATION_URL_RE.search(raw_citation) and not _CITATION_PAPER_MARKER_RE.search(raw_citation):
         return "web-resource"
     return "paper"
