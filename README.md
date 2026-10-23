@@ -81,6 +81,7 @@ Each result combines:
 | `db_authors`        | Authors associated with the matched database record                       |
 | `title_exact_match` | Whether `parsed_title` and `matched_title` are identical after normalizing (`True`/`False`/`None`) |
 | `title_similarity`  | Fuzzy similarity (0.0-1.0) between the normalized titles, when available |
+| `url_reachable`     | For a `web-resource` citation, whether its URL responded (`True`/`False`/`None` if inconclusive or not checked); always `None` for a paper citation |
 | `flagged`           | `True` if any concern was raised about this citation                      |
 | `flag_reasons`      | List of short strings explaining why `flagged` is `True` (empty otherwise) |
 
@@ -96,6 +97,9 @@ The title status can be:
 | `web-resource` | The citation appears to refer to a non-academic web resource and is not sent to the verification API |
 
 For example, a blog post, product page, or other general web resource may be classified as `web-resource`. Such references are intentionally excluded from academic-index verification because they are not expected to appear in our academic dataset.
+
+A `web-resource` citation still gets checked, just not against the academic index: by default, `verify_pdf()`/`verify()` send a lightweight HEAD request (GET fallback, no page content downloaded) straight to the cited URL and set `url_reachable` accordingly. This exists so `flagged: False` doesn't silently mean "nothing was checked at all" for these citations the way it otherwise would, a citation to a URL that returns 404 or doesn't resolve gets flagged, same as any other unverifiable citation. 
+Disable it with `check_web_resource_urls=False` if you don't want the extra network requests.
 
 ---
 
