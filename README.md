@@ -98,7 +98,8 @@ The title status can be:
 
 For example, a blog post, product page, or other general web resource may be classified as `web-resource`. Such references are intentionally excluded from academic-index verification because they are not expected to appear in our academic dataset.
 
-A `web-resource` citation still gets checked, just not against the academic index: by default, `verify_pdf()`/`verify()` send a lightweight HEAD request (GET fallback, no page content downloaded) straight to the cited URL and set `url_reachable` accordingly. This exists so `flagged: False` doesn't silently mean "nothing was checked at all" for these citations the way it otherwise would -- a citation to a URL that returns 404 or doesn't resolve gets flagged, same as any other unverifiable citation. Disable it with `check_web_resource_urls=False` if you don't want the extra network requests (e.g. fully offline use); `verify_pdf()` already requires network access to reach the SafeRef API, so this doesn't add a new category of network exposure, just more of it.
+A `web-resource` citation still gets checked, just not against the academic index: by default, `verify_pdf()`/`verify()` send a lightweight HEAD request (GET fallback, no page content downloaded) straight to the cited URL and set `url_reachable` accordingly. This exists so `flagged: False` doesn't silently mean "nothing was checked at all" for these citations the way it otherwise would, a citation to a URL that returns 404 or doesn't resolve gets flagged, same as any other unverifiable citation. 
+Disable it with `check_web_resource_urls=False` if you don't want the extra network requests.
 
 ---
 
